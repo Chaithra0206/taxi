@@ -17,10 +17,6 @@ app.config.update(
     MAX_CONTENT_LENGTH=1024 * 1024
 )
 
-# Admin credentials – username/password based
-app.config['ADMIN_USERNAME'] = os.getenv('ADMIN_USERNAME', 'mangaloretaxi')
-app.config['ADMIN_PASSWORD'] = os.getenv('ADMIN_PASSWORD', '')
-
 # Rate limiting (optional – gracefully skip if package missing)
 try:
     from flask_limiter import Limiter
