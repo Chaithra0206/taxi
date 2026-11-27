@@ -1,9 +1,10 @@
-import hmac, json
+import json
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request, session, send_file
+from werkzeug.security import check_password_hash
 
 admin_bp = Blueprint('admin', __name__)
 STATUSES = {'Pending', 'Confirmed', 'Completed', 'Cancelled'}
@@ -46,22 +47,37 @@ def admin_login():
 
     data = request.get_json(silent=True) or {}
 
-    # Accept either 'username' or 'email' field from the login form
     username_input = str(data.get('username') or data.get('email') or '').strip().lower()
     password_input = str(data.get('password', ''))
 
-    expected_username = current_app.config.get('ADMIN_USERNAME', 'mangaloretaxi').strip().lower()
-    expected_password = current_app.config.get('ADMIN_PASSWORD', '')
+    if not username_input or not password_input:
+        return jsonify(error='Please enter username and password.'), 400
 
-    if (not expected_username or not expected_password
-            or not hmac.compare_digest(username_input, expected_username)
-            or not hmac.compare_digest(password_input, expected_password)):
-        return jsonify(error='Invalid username or password.'), 401
+    # Authenticate purely against Supabase admin_users table
+    if current_app.db is not None:
+        try:
+            res = (
+                current_app.db.table('admin_users')
+                .select('*')
+                .or_(f"username.eq.{username_input},email.eq.{username_input}")
+                .limit(1)
+                .execute()
+            )
+            users = res.data or []
+            if users:
+                user = users[0]
+                if check_password_hash(user['password_hash'], password_input):
+                    session.clear()
+                    session['mtc_admin'] = True
+                    session['mtc_admin_user'] = user['username']
+                    return jsonify(message='Login successful.', username=user['username'])
+                return jsonify(error='Invalid username or password.'), 401
+            return jsonify(error='Invalid username or password.'), 401
+        except Exception:
+            current_app.logger.exception('Supabase admin login query failed')
+            return jsonify(error='Authentication service currently unavailable.'), 503
 
-    session.clear()
-    session['mtc_admin'] = True
-    session['mtc_admin_user'] = expected_username
-    return jsonify(message='Login successful.', username=expected_username)
+    return jsonify(error='Database is not connected.'), 503
 
 
 # ──────────────────────────────────────────────
